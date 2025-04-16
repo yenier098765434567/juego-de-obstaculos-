@@ -1,0 +1,312 @@
+import pygame
+import random
+import json
+
+# Inicializar Pygame y el mezclador de sonido
+pygame.init()
+pygame.mixer.init()
+
+# Dimensiones de la ventana
+ancho = 800
+alto = 600
+pantalla = pygame.display.set_mode((ancho, alto))
+pygame.display.set_caption("Juego de Obstáculos Completo")
+
+# Colores
+blanco = (255, 255, 255)
+negro = (0, 0, 0)
+verde_oscuro = (0, 100, 0)
+gris_claro = (220, 220, 220)
+amarillo = (255, 255, 0)
+cian = (0, 255, 255)
+rojo = (255, 0, 0)
+
+# Fuentes
+fuente_ui_ruta = "PressStart2P.ttf"
+fuente_basica = pygame.font.Font(fuente_ui_ruta, 24)
+fuente_titulo = pygame.font.Font(fuente_ui_ruta, 48)
+fuente_menu = pygame.font.Font(fuente_ui_ruta, 30)
+fuente_tienda_titulo = pygame.font.Font(fuente_ui_ruta, 36)
+fuente_tienda_item = pygame.font.Font(fuente_ui_ruta, 20)
+
+# Cargar sonidos
+sonido_salto = pygame.mixer.Sound("jump.wav")
+sonido_deslizar = pygame.mixer.Sound("slide.wav")
+sonido_colision = pygame.mixer.Sound("collision.wav")
+pygame.mixer.music.load("background_music.ogg") # Cargar música de fondo
+pygame.mixer.music.set_volume(0.5)
+pygame.mixer.music.play(-1) # Reproducir en bucle
+
+# Jugador
+class Jugador(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        super().__init__()
+        self.idle_image = pygame.image.load("jugador_idle.png").convert_alpha()
+        self.corriendo_frames = [pygame.image.load(f"jugador_corriendo_{i}.png").convert_alpha() for i in range(1, 3)]
+        self.saltando_frames = [pygame.image.load(f"jugador_saltando_{i}.png").convert_alpha() for i in range(1, 3)]
+        self.deslizando_frames = [pygame.image.load(f"jugador_deslizando_{i}.png").convert_alpha() for i in range(1, 3)]
+        self.image = self.idle_image
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.velocidad_y = 0
+        self.saltando = False
+        self.corriendo = False
+        self.deslizandose = False
+        self.velocidad_x_normal = 5
+        self.velocidad_x = self.velocidad_x_normal
+        self.frame_actual = 0
+        self.animation_delay = 5
+        self.delay_counter = 0
+        self.deslizamiento_duracion = 30
+        self.deslizamiento_contador = 0
+        self.salto_frame_actual = 0
+        self.salto_animation_delay = 3
+        self.salto_delay_counter = 0
+        self.deslizamiento_frame_actual = 0
+        self.deslizamiento_animation_delay = 3
+        self.deslizamiento_delay_counter = 0
+        self.aumento_velocidad_activo = False
+        self.aumento_velocidad_duracion = 150
+        self.aumento_velocidad_contador = 0
+        self.aumento_velocidad_multiplicador = 1.5
+
+    def update(self):
+        self.velocidad_y += gravedad
+        self.rect.y += self.velocidad_y
+        if self.rect.bottom > alto - 50:
+            self.rect.bottom = alto - 50
+            self.velocidad_y = 0
+            self.saltando = False
+            self.corriendo = False
+            self.deslizandose = False
+            self.image = self.idle_image
+            self.rect = self.image.get_rect(bottomleft=self.rect.bottomleft)
+        elif self.deslizandose:
+            self.deslizamiento_delay_counter += 1
+            if self.deslizamiento_delay_counter >= self.deslizamiento_animation_delay:
+                self.deslizamiento_delay_counter = 0
+                self.deslizamiento_frame_actual = (self.deslizamiento_frame_actual + 1) % len(self.deslizando_frames)
+                self.image = self.deslizando_frames[self.deslizamiento_frame_actual]
+            self.deslizamiento_contador += 1
+            if self.deslizamiento_contador >= self.deslizamiento_duracion:
+                self.deslizandose = False
+                self.image = self.idle_image
+                self.rect = self.image.get_rect(bottomleft=self.rect.bottomleft)
+                self.velocidad_x = self.velocidad_x_normal
+        elif self.saltando:
+            self.salto_delay_counter += 1
+            if self.salto_delay_counter >= self.salto_animation_delay:
+                self.salto_delay_counter = 0
+                self.salto_frame_actual = (self.salto_frame_actual + 1) % len(self.saltando_frames)
+                self.image = self.saltando_frames[self.salto_frame_actual]
+        elif self.corriendo:
+            self.delay_counter += 1
+            if self.delay_counter >= self.animation_delay:
+                self.delay_counter = 0
+                self.frame_actual = (self.frame_actual + 1) % len(self.corriendo_frames)
+                self.image = self.corriendo_frames[self.frame_actual]
+        else:
+            self.image = self.idle_image
+
+        if not self.deslizandose and not self.saltando and not self.corriendo:
+            self.rect = self.image.get_rect(bottomleft=self.rect.bottomleft)
+        elif self.deslizandose:
+            self.rect = self.image.get_rect(bottomleft=self.rect.bottomleft)
+            if self.deslizando_frames:
+                self.rect.height = self.deslizando_frames[0].get_height()
+                self.rect.y += (self.image.get_height() - self.deslizando_frames[0].get_height())
+        elif self.saltando:
+            self.rect = self.image.get_rect(midbottom=self.rect.midbottom)
+            if self.saltando_frames:
+                self.rect.height = self.saltando_frames[0].get_height()
+                self.rect.y += (self.image.get_height() - self.saltando_frames[0].get_height())
+        else:
+            self.rect = self.image.get_rect(bottomleft=self.rect.bottomleft)
+
+        if self.aumento_velocidad_activo:
+            self.velocidad_x = self.velocidad_x_normal * self.aumento_velocidad_multiplicador
+            self.aumento_velocidad_contador += 1
+            if self.aumento_velocidad_contador >= self.aumento_velocidad_duracion:
+                self.aumento_velocidad_activo = False
+                self.velocidad_x = self.velocidad_x_normal
+                self.aumento_velocidad_contador = 0
+
+    def saltar(self):
+        if not self.saltando:
+            self.velocidad_y = -20
+            self.saltando = True
+            self.deslizandose = False
+            self.salto_frame_actual = 0
+            sonido_salto.play()
+
+    def correr_izquierda(self):
+        if not self.deslizandose:
+            self.corriendo = True
+
+    def correr_derecha(self):
+        if not self.deslizandose:
+            self.corriendo = True
+
+    def deslizar(self):
+        if not self.saltando and not self.corriendo and not self.deslizandose:
+            self.deslizandose = True
+            self.deslizamiento_contador = 0
+            self.velocidad_x = 10
+            self.deslizamiento_frame_actual = 0
+            if self.deslizando_frames:
+                self.rect.height = self.deslizando_frames[0].get_height()
+                self.rect.y += (self.image.get_height() - self.deslizando_frames[0].get_height())
+            sonido_deslizar.play()
+
+    def activar_aumento_velocidad(self):
+        if not self.aumento_velocidad_activo:
+            self.aumento_velocidad_activo = True
+            self.aumento_velocidad_contador = 0
+
+# Obstáculos
+class Obstaculo(pygame.sprite.Sprite):
+    def __init__(self, x, y, ancho, alto, tipo, velocidad_base):
+        super().__init__()
+        self.tipo = tipo
+        self.image = pygame.Surface([ancho, alto])
+        if self.tipo == "estatico":
+            self.image.fill(rojo)
+        elif self.tipo == "movimiento_horizontal":
+            self.image.fill(amarillo)
+            self.direccion = random.choice([-1, 1])
+            self.velocidad = 3 * velocidad_base
+        elif self.tipo == "movimiento_vertical":
+            self.image.fill(cian)
+            self.direccion = random.choice([-1, 1])
+            self.velocidad = 2 * velocidad_base
+            self.rango_movimiento = random.randint(50, 150)
+            self.y_inicial = y
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+    def update(self):
+        if self.tipo == "movimiento_horizontal":
+            self.rect.x += self.velocidad * self.direccion
+            if self.rect.right < 0 or self.rect.left > ancho:
+                self.direccion *= -1
+        elif self.tipo == "movimiento_vertical":
+            self.rect.y += self.velocidad * self.direccion
+            if self.rect.y < self.y_inicial - self.rango_movimiento or self.rect.y > self.y_inicial + self.rango_movimiento:
+                self.direccion *= -1
+
+# Grupos de sprites
+todos_los_sprites = pygame.sprite.Group()
+obstaculos = pygame.sprite.Group()
+jugador = Jugador(50, alto - 100)
+todos_los_sprites.add(jugador)
+
+# Datos del juego
+puntuacion = 0
+vidas = 3
+tiempo_inicial = pygame.time.get_ticks()
+tiempo_transcurrido = 0
+nivel_actual = 1
+velocidad_base_obstaculos = 1.0
+game_over = False
+game_started = False
+
+# Tienda
+tienda_abierta = False
+articulos_tienda = [
+    {"nombre": "Vida Extra", "precio": 100, "id": 1},
+    {"nombre": "Aumento de Velocidad", "precio": 150, "id": 2}
+]
+
+def mostrar_texto(texto, color, x, y, fuente):
+    superficie_texto = fuente.render(texto, True, color)
+    rectangulo_texto = superficie_texto.get_rect()
+    rectangulo_texto.topleft = (x, y)
+    pantalla.blit(superficie_texto, rectangulo_texto)
+
+def mostrar_tienda():
+    pygame.draw.rect(pantalla, verde_oscuro, [ancho // 4, alto // 4, ancho // 2, alto // 2])
+    mostrar_texto("Tienda", blanco, ancho // 2 - 50, alto // 4 + 20, fuente_tienda_titulo)
+    y_offset = alto // 4 + 80
+    for articulo in articulos_tienda:
+        texto_articulo = f"{articulo['nombre']} - Precio: {articulo['precio']} (Presiona {articulo['id']})"
+        mostrar_texto(texto_articulo, blanco, ancho // 4 + 20, y_offset, fuente_tienda_item)
+        y_offset += 30
+    mostrar_texto(f"Puntos: {int(puntuacion)}", blanco, ancho // 4 + 20, y_offset + 20, fuente_tienda_item)
+    mostrar_texto("Presiona 'T' para cerrar la tienda", blanco, ancho // 4 + 20, alto // 2 - 30, fuente_tienda_item)
+
+def guardar_datos():
+    datos = {
+        "puntuacion": puntuacion,
+        "vidas": vidas,
+        "tiempo_transcurrido": tiempo_transcurrido,
+        "nivel_actual": nivel_actual
+    }
+    try:
+        with open("datos_juego.json", "w") as archivo:
+            json.dump(datos, archivo)
+        print("Datos del juego guardados.")
+    except Exception as e:
+        print(f"Error al guardar los datos: {e}")
+
+def cargar_datos():
+    global puntuacion, vidas, tiempo_inicial, tiempo_transcurrido, nivel_actual
+    try:
+        with open("datos_juego.json", "r") as archivo:
+            datos = json.load(archivo)
+            puntuacion = datos.get("puntuacion", 0)
+            vidas = datos.get("vidas", 3)
+            tiempo_transcurrido = datos.get("tiempo_transcurrido", 0)
+            nivel_actual = datos.get("nivel_actual", 1)
+            tiempo_inicial = pygame.time.get_ticks() - tiempo_transcurrido
+        print("Datos del juego cargados.")
+    except FileNotFoundError:
+        print("No se encontró archivo de guardado. Iniciando con datos predeterminados.")
+    except Exception as e:
+        print(f"Error al cargar los datos: {e}")
+
+def generar_obstaculos(num_obstaculos, velocidad_base):
+    obstaculos.empty()
+    todos_los_sprites.empty()
+    todos_los_sprites.add(jugador)
+    for _ in range(num_obstaculos):
+        ancho_obstaculo = random.randint(30, 60)
+        alto_obstaculo = random.randint(20, 80)
+        x_obstaculo = random.randint(ancho // 2, ancho * 2)
+        y_obstaculo = alto - alto_obstaculo - 50
+        tipos_posibles = ["estatico", "movimiento_horizontal"]
+        if nivel_actual > 1:
+            tipos_posibles.append("movimiento_vertical")
+        tipo_obstaculo = random.choice(tipos_posibles)
+        obstaculo = Obstaculo(x_obstaculo, y_obstaculo, ancho_obstaculo, alto_obstaculo, tipo_obstaculo, velocidad_base)
+        obstaculos.add(obstaculo)
+        todos_los_sprites.add(obstaculo)
+
+# Gravedad
+gravedad = 1
+
+# Generar obstáculos iniciales
+generar_obstaculos(5, velocidad_base_obstaculos)
+
+# Bucle principal del juego
+running = True
+while running:
+    # Gestión de eventos
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if not game_over and game_started:
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE:
+                    jugador.saltar()
+                if event.key == pygame.K_DOWN:
+                    jugador.deslizar()
+                if event.key == pygame.K_LEFT:
+                    jugador.correr_izquierda()
+                if event.key == pygame.K_RIGHT:
+                    jugador.correr_derecha()
+                if event.key == pygame.K_t:
+                    tienda_abierta = not tienda_abierta
+                if tienda_abierta:
+                    if event.key ==pygame
